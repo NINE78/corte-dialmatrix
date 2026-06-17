@@ -2,9 +2,10 @@
   "domain": "dialmatrix",
   "name": "Dial Matrix",
   "version": "1.0.0",
-  "documentation": "https://github.com/niklasberg/corte-dialmatrix",
+  "documentation": "https://github.com/NINE78/corte-dialmatrix",
+  "issue_tracker": "https://github.com/NINE78/corte-dialmatrix/issues",
   "iot_class": "local_push",
-  "codeowners": ["@nik"],
+  "codeowners": ["@NINE78"],
   "requirements": [],
   "dependencies": []
 }
