@@ -6,6 +6,7 @@ from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
@@ -35,6 +36,18 @@ async def async_setup_platform(
 
     async_add_entities(entities, True)
 
+    # Ensure entity IDs in the registry match switch.dialmatrix_{doorbell}_{target}.
+    # The registry wins over self.entity_id, so we update it directly.
+    registry = er.async_get(hass)
+    for entity in entities:
+        desired_id = f"switch.{DOMAIN}_{entity._doorbell_id}_{entity._target_id}"
+        current_id = registry.async_get_entity_id(
+            "switch", DOMAIN, entity._attr_unique_id
+        )
+        if current_id and current_id != desired_id:
+            registry.async_update_entity(current_id, new_entity_id=desired_id)
+            _LOGGER.debug("Renamed entity %s → %s", current_id, desired_id)
+
 
 class DialMatrixSwitch(RestoreEntity, SwitchEntity):
     """A single routing cell: one doorbell → one notification target."""
@@ -48,9 +61,6 @@ class DialMatrixSwitch(RestoreEntity, SwitchEntity):
 
         self._attr_unique_id = f"{DOMAIN}_{self._doorbell_id}_{self._target_id}"
         self._attr_should_poll = False
-        # Explicit entity_id guarantees switch.dialmatrix_{doorbell_id}_{target_id}
-        # regardless of the display name, and survives name changes.
-        self.entity_id = f"switch.{DOMAIN}_{self._doorbell_id}_{self._target_id}"
 
     @property
     def name(self) -> str:
