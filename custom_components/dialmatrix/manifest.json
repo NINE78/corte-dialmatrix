@@ -1,0 +1,10 @@
+{
+  "domain": "dialmatrix",
+  "name": "Dial Matrix",
+  "version": "1.0.0",
+  "documentation": "https://github.com/niklasberg/corte-dialmatrix",
+  "iot_class": "local_push",
+  "codeowners": ["@nik"],
+  "requirements": [],
+  "dependencies": []
+}

@@ -1,0 +1,15 @@
+{
+  "title": "Dial Matrix",
+  "services": {
+    "ring": {
+      "name": "Ring",
+      "description": "Triggers a doorbell ring and fires a dialmatrix_ring event with the list of enabled notification targets.",
+      "fields": {
+        "doorbell_id": {
+          "name": "Doorbell ID",
+          "description": "The identifier of the doorbell that was triggered."
+        }
+      }
+    }
+  }
+}

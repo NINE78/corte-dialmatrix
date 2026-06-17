@@ -1,0 +1,13 @@
+ring:
+  name: Ring
+  description: >
+    Triggers a doorbell ring. Collects all enabled targets for the specified
+    doorbell and fires a dialmatrix_ring event with the resulting list.
+  fields:
+    doorbell_id:
+      name: Doorbell ID
+      description: The identifier of the doorbell that was triggered.
+      required: true
+      example: "front"
+      selector:
+        text:
