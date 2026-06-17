@@ -48,6 +48,9 @@ class DialMatrixSwitch(RestoreEntity, SwitchEntity):
 
         self._attr_unique_id = f"{DOMAIN}_{self._doorbell_id}_{self._target_id}"
         self._attr_should_poll = False
+        # Explicit entity_id guarantees switch.dialmatrix_{doorbell_id}_{target_id}
+        # regardless of the display name, and survives name changes.
+        self.entity_id = f"switch.{DOMAIN}_{self._doorbell_id}_{self._target_id}"
 
     @property
     def name(self) -> str:
