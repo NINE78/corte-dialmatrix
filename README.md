@@ -21,37 +21,37 @@ Add to `configuration.yaml`:
 dialmatrix:
   doorbells:
     - id: front
-      name: "Front Door"
+      name: 'Front Door'
     - id: garden
-      name: "Garden Gate"
+      name: 'Garden Gate'
     - id: garage
-      name: "Garage"
+      name: 'Garage'
   targets:
     - id: alice_phone
-      name: "Alice"
+      name: 'Alice'
       notify_service: notify.mobile_app_alice_iphone
     - id: bob_phone
-      name: "Bob"
+      name: 'Bob'
       notify_service: notify.mobile_app_bob_pixel
-      notify_message: "Doorbell at the $doorbell_name!"
+      notify_message: 'Doorbell at the $doorbell_name!'
     - id: living_room
-      name: "Living Room Speaker"
+      name: 'Living Room Speaker'
       tts_entity: tts.google_en_com
       tts_media_player: media_player.living_room_speaker
 ```
 
 ### Target options
 
-| Key | Required | Description |
-|---|---|---|
-| `id` | ✅ | Unique identifier used internally |
-| `name` | ✅ | Display name shown in the Lovelace card |
-| `notify_service` | | HA notify service, e.g. `notify.mobile_app_foo` |
-| `notify_title` | | Push notification title. Default: `Doorbell` |
-| `notify_message` | | Push notification body. Supports `$doorbell_name`. Default: `Someone is at the $doorbell_name door` |
-| `tts_entity` | | TTS entity, e.g. `tts.google_en_com` |
-| `tts_media_player` | | Target media player entity ID |
-| `tts_message` | | TTS message text. Supports `$doorbell_name` |
+| Key                | Required | Description                                                                                         |
+| ------------------ | -------- | --------------------------------------------------------------------------------------------------- |
+| `id`               | ✅       | Unique identifier used internally                                                                   |
+| `name`             | ✅       | Display name shown in the Lovelace card                                                             |
+| `notify_service`   |          | HA notify service, e.g. `notify.mobile_app_foo`                                                     |
+| `notify_title`     |          | Push notification title. Default: `Doorbell`                                                        |
+| `notify_message`   |          | Push notification body. Supports `$doorbell_name`. Default: `Someone is at the $doorbell_name door` |
+| `tts_entity`       |          | TTS entity, e.g. `tts.google_en_com`                                                                |
+| `tts_media_player` |          | Target media player entity ID                                                                       |
+| `tts_message`      |          | TTS message text. Supports `$doorbell_name`                                                         |
 
 ## Automations
 
@@ -59,7 +59,7 @@ You need one automation per doorbell to trigger the ring service from MQTT:
 
 ```yaml
 automation:
-  - alias: "Doorbell — Front Door"
+  - alias: 'Doorbell — Front Door'
     trigger:
       - platform: mqtt
         topic: doorbell/front
@@ -87,5 +87,5 @@ Install the companion [Dial Matrix Card](https://github.com/NINE78/corte-dialmat
 
 ```yaml
 type: custom:dialmatrix-card
-title: "Call Routing Matrix"
+title: 'Call Routing Matrix'
 ```
