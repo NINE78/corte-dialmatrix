@@ -21,7 +21,7 @@ A Home Assistant custom integration that implements a visual **event routing mat
 
 ## Configuration
 
-The easiest way is the **pencil button on the Dial Matrix card**: it opens an inline editor for doorbells, cameras, targets and Frigate settings and saves straight into the integration (websocket commands `dialmatrix/config` and `dialmatrix/config/save`, admin only).
+The easiest way is the **Dial Matrix card's edit dialog** (dashboard edit mode → edit card): it contains a routing editor for doorbells, cameras, targets and Frigate settings and saves straight into the integration (websocket commands `dialmatrix/config` and `dialmatrix/config/save`, admin only).
 
 The same settings are also available from the integration's **Configure** dialog (options flow):
 
