@@ -1,12 +1,13 @@
 {
   "domain": "dialmatrix",
   "name": "Dial Matrix",
-  "version": "1.0.0",
-  "documentation": "https://github.com/NINE78/corte-dialmatrix",
-  "issue_tracker": "https://github.com/NINE78/corte-dialmatrix/issues",
-  "iot_class": "local_push",
+  "after_dependencies": ["mqtt"],
   "codeowners": ["@NINE78"],
-  "requirements": [],
+  "config_flow": true,
   "dependencies": [],
-  "after_dependencies": ["mqtt"]
+  "documentation": "https://github.com/NINE78/corte-dialmatrix",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/NINE78/corte-dialmatrix/issues",
+  "requirements": [],
+  "version": "1.0.0"
 }

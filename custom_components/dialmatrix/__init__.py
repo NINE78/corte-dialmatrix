@@ -3,10 +3,15 @@
 Routes events from *sources* (doorbells, Frigate camera detections such as
 person / car) to *targets* (mobile push notifications, TTS speakers) based on
 a matrix of switch entities that can be toggled from the companion card.
+
+Configuration lives in a config entry (Settings → Integrations → Dial Matrix →
+Configure). A legacy `dialmatrix:` block in configuration.yaml is imported
+once and can then be removed.
 """
 from __future__ import annotations
 
 from collections import OrderedDict
+from collections.abc import Callable
 import json
 import logging
 from string import Template
@@ -14,57 +19,58 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import config_validation as cv
-import homeassistant.helpers.discovery as discovery
+from homeassistant.helpers import issue_registry as ir
+
+from .const import (
+    CONF_CAMERAS,
+    CONF_DETECT_MESSAGE,
+    CONF_DETECT_TITLE,
+    CONF_DETECT_TTS_MESSAGE,
+    CONF_DOORBELLS,
+    CONF_FRIGATE,
+    CONF_FRIGATE_CAMERA,
+    CONF_ID,
+    CONF_IMAGE_URL,
+    CONF_LABELS,
+    CONF_MQTT,
+    CONF_MQTT_TOPIC,
+    CONF_NAME,
+    CONF_NOTIFY_DATA,
+    CONF_NOTIFY_MESSAGE,
+    CONF_NOTIFY_SERVICE,
+    CONF_NOTIFY_TITLE,
+    CONF_TARGETS,
+    CONF_TTS_ENTITY,
+    CONF_TTS_MEDIA_PLAYER,
+    CONF_TTS_MESSAGE,
+    CONF_ZONES,
+    DEFAULT_DETECT_MESSAGE,
+    DEFAULT_DETECT_TITLE,
+    DEFAULT_DETECT_TTS_MESSAGE,
+    DEFAULT_FRIGATE_IMAGE_URL,
+    DEFAULT_FRIGATE_TOPIC,
+    DEFAULT_LABELS,
+    DEFAULT_NOTIFY_MESSAGE,
+    DEFAULT_NOTIFY_TITLE,
+    DEFAULT_TTS_MESSAGE,
+    DOMAIN,
+    EVENT_TYPE_DOORBELL,
+    SEEN_EVENTS_MAX,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-DOMAIN = "dialmatrix"
+PLATFORMS = [Platform.SWITCH]
 
-# Event types (row kinds in the matrix)
-EVENT_TYPE_DOORBELL = "doorbell"
-DEFAULT_LABELS = ["person", "car"]
+# -----------------------------------------------------------------------------
+# Schemas — shared by YAML import and by the options flow (defaults applied here)
+# -----------------------------------------------------------------------------
 
-# Config keys
-CONF_DOORBELLS = "doorbells"
-CONF_CAMERAS = "cameras"
-CONF_TARGETS = "targets"
-CONF_FRIGATE = "frigate"
-CONF_ID = "id"
-CONF_NAME = "name"
-CONF_FRIGATE_CAMERA = "frigate_camera"
-CONF_LABELS = "labels"
-CONF_ZONES = "zones"
-CONF_MQTT = "mqtt"
-CONF_MQTT_TOPIC = "mqtt_topic"
-CONF_IMAGE_URL = "image_url"
-
-CONF_NOTIFY_SERVICE = "notify_service"
-CONF_NOTIFY_TITLE = "notify_title"
-CONF_NOTIFY_MESSAGE = "notify_message"
-CONF_NOTIFY_DATA = "notify_data"
-CONF_DETECT_TITLE = "detect_title"
-CONF_DETECT_MESSAGE = "detect_message"
-CONF_TTS_ENTITY = "tts_entity"
-CONF_TTS_MEDIA_PLAYER = "tts_media_player"
-CONF_TTS_MESSAGE = "tts_message"
-CONF_DETECT_TTS_MESSAGE = "detect_tts_message"
-
-_DEFAULT_NOTIFY_TITLE = "Doorbell"
-_DEFAULT_NOTIFY_MESSAGE = "Someone is at the $doorbell_name door"
-_DEFAULT_TTS_MESSAGE = "Someone is at the $doorbell_name door"
-_DEFAULT_DETECT_TITLE = "$label_title detected"
-_DEFAULT_DETECT_MESSAGE = "$label_title detected at $camera_name"
-_DEFAULT_DETECT_TTS_MESSAGE = "A $label was detected at the $camera_name"
-_DEFAULT_FRIGATE_TOPIC = "frigate/events"
-_DEFAULT_FRIGATE_IMAGE_URL = "/api/frigate/notifications/$event_id/thumbnail.jpg"
-
-# Bound on remembered Frigate event ids (dedup of MQTT new/update messages)
-_SEEN_EVENTS_MAX = 1000
-
-_DOORBELL_SCHEMA = vol.Schema(
+DOORBELL_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_ID): cv.string,
         vol.Required(CONF_NAME): cv.string,
@@ -74,7 +80,7 @@ _DOORBELL_SCHEMA = vol.Schema(
     }
 )
 
-_CAMERA_SCHEMA = vol.Schema(
+CAMERA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_ID): cv.string,
         vol.Required(CONF_NAME): cv.string,
@@ -93,69 +99,57 @@ _CAMERA_SCHEMA = vol.Schema(
     }
 )
 
-_TARGET_SCHEMA = vol.Schema(
+TARGET_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_ID): cv.string,
         vol.Required(CONF_NAME): cv.string,
         # Mobile push notification
         vol.Optional(CONF_NOTIFY_SERVICE): cv.string,
-        vol.Optional(CONF_NOTIFY_TITLE, default=_DEFAULT_NOTIFY_TITLE): cv.string,
-        vol.Optional(CONF_NOTIFY_MESSAGE, default=_DEFAULT_NOTIFY_MESSAGE): cv.string,
-        vol.Optional(CONF_DETECT_TITLE, default=_DEFAULT_DETECT_TITLE): cv.string,
-        vol.Optional(CONF_DETECT_MESSAGE, default=_DEFAULT_DETECT_MESSAGE): cv.string,
+        vol.Optional(CONF_NOTIFY_TITLE, default=DEFAULT_NOTIFY_TITLE): cv.string,
+        vol.Optional(CONF_NOTIFY_MESSAGE, default=DEFAULT_NOTIFY_MESSAGE): cv.string,
+        vol.Optional(CONF_DETECT_TITLE, default=DEFAULT_DETECT_TITLE): cv.string,
+        vol.Optional(CONF_DETECT_MESSAGE, default=DEFAULT_DETECT_MESSAGE): cv.string,
         # Extra `data:` merged into every notify call for this target
         vol.Optional(CONF_NOTIFY_DATA, default={}): dict,
         # TTS
         vol.Optional(CONF_TTS_ENTITY): cv.string,
         vol.Optional(CONF_TTS_MEDIA_PLAYER): cv.entity_id,
-        vol.Optional(CONF_TTS_MESSAGE, default=_DEFAULT_TTS_MESSAGE): cv.string,
+        vol.Optional(CONF_TTS_MESSAGE, default=DEFAULT_TTS_MESSAGE): cv.string,
         vol.Optional(
-            CONF_DETECT_TTS_MESSAGE, default=_DEFAULT_DETECT_TTS_MESSAGE
+            CONF_DETECT_TTS_MESSAGE, default=DEFAULT_DETECT_TTS_MESSAGE
         ): cv.string,
     }
 )
 
-_FRIGATE_SCHEMA = vol.Schema(
+FRIGATE_SCHEMA = vol.Schema(
     {
         # Subscribe to Frigate's MQTT event stream and dispatch automatically
         vol.Optional(CONF_MQTT, default=True): cv.boolean,
-        vol.Optional(CONF_MQTT_TOPIC, default=_DEFAULT_FRIGATE_TOPIC): cv.string,
+        vol.Optional(CONF_MQTT_TOPIC, default=DEFAULT_FRIGATE_TOPIC): cv.string,
         # Image attached to push notifications; "" disables. Supports $event_id
-        vol.Optional(CONF_IMAGE_URL, default=_DEFAULT_FRIGATE_IMAGE_URL): cv.string,
+        vol.Optional(CONF_IMAGE_URL, default=DEFAULT_FRIGATE_IMAGE_URL): cv.string,
     }
 )
 
-
-def _at_least_one_source(conf: dict) -> dict:
-    if not conf.get(CONF_DOORBELLS) and not conf.get(CONF_CAMERAS):
-        raise vol.Invalid("dialmatrix needs at least one of 'doorbells' or 'cameras'")
-    return conf
-
-
-CONFIG_SCHEMA = vol.Schema(
+OPTIONS_SCHEMA = vol.Schema(
     {
-        DOMAIN: vol.All(
-            vol.Schema(
-                {
-                    vol.Optional(CONF_DOORBELLS, default=[]): vol.All(
-                        cv.ensure_list, [_DOORBELL_SCHEMA]
-                    ),
-                    vol.Optional(CONF_CAMERAS, default=[]): vol.All(
-                        cv.ensure_list, [_CAMERA_SCHEMA]
-                    ),
-                    vol.Required(CONF_TARGETS): vol.All(
-                        cv.ensure_list, [_TARGET_SCHEMA]
-                    ),
-                    vol.Optional(CONF_FRIGATE, default={}): _FRIGATE_SCHEMA,
-                }
-            ),
-            _at_least_one_source,
-        )
+        vol.Optional(CONF_DOORBELLS, default=[]): vol.All(
+            cv.ensure_list, [DOORBELL_SCHEMA]
+        ),
+        vol.Optional(CONF_CAMERAS, default=[]): vol.All(
+            cv.ensure_list, [CAMERA_SCHEMA]
+        ),
+        vol.Optional(CONF_TARGETS, default=[]): vol.All(
+            cv.ensure_list, [TARGET_SCHEMA]
+        ),
+        vol.Optional(CONF_FRIGATE, default={}): FRIGATE_SCHEMA,
     },
-    extra=vol.ALLOW_EXTRA,
+    extra=vol.REMOVE_EXTRA,
 )
 
-_RING_SCHEMA = vol.Schema(
+CONFIG_SCHEMA = vol.Schema({DOMAIN: OPTIONS_SCHEMA}, extra=vol.ALLOW_EXTRA)
+
+RING_SCHEMA = vol.Schema(
     {
         vol.Required("doorbell_id"): cv.string,
         # Optional Frigate event id, used to attach a snapshot to the push
@@ -163,7 +157,7 @@ _RING_SCHEMA = vol.Schema(
     }
 )
 
-_DETECT_SCHEMA = vol.Schema(
+DETECT_SCHEMA = vol.Schema(
     {
         vol.Required("camera_id"): cv.string,
         vol.Required("label"): cv.string,
@@ -172,6 +166,11 @@ _DETECT_SCHEMA = vol.Schema(
         vol.Optional("zones", default=[]): vol.All(cv.ensure_list, [cv.string]),
     }
 )
+
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
 
 
 def _render(template_str: str, ctx: dict[str, Any]) -> str:
@@ -216,7 +215,7 @@ def _normalise_sub_label(value: Any) -> str | None:
     return str(value)
 
 
-def _build_sources(conf: dict) -> list[dict[str, Any]]:
+def build_sources(conf: dict) -> list[dict[str, Any]]:
     """Flatten doorbells and camera×label pairs into a single ordered list.
 
     Each source dict has: event_type, id, name, attributes (extra state attrs
@@ -255,41 +254,40 @@ def _build_sources(conf: dict) -> list[dict[str, Any]]:
     return sources
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Set up the Dial Matrix component."""
-    conf = config.get(DOMAIN)
-    if conf is None:
-        return True
+# -----------------------------------------------------------------------------
+# Runtime — one per config entry (single instance)
+# -----------------------------------------------------------------------------
 
-    targets_by_id = {t[CONF_ID]: t for t in conf[CONF_TARGETS]}
-    doorbells_by_id = {d[CONF_ID]: d for d in conf[CONF_DOORBELLS]}
-    cameras_by_id = {c[CONF_ID]: c for c in conf[CONF_CAMERAS]}
-    cameras_by_frigate_name = {
-        c.get(CONF_FRIGATE_CAMERA, c[CONF_ID]): c for c in conf[CONF_CAMERAS]
-    }
-    frigate_conf = conf[CONF_FRIGATE]
 
-    hass.data[DOMAIN] = {
-        "doorbells": conf[CONF_DOORBELLS],
-        "cameras": conf[CONF_CAMERAS],
-        "targets": conf[CONF_TARGETS],
-        "sources": _build_sources(conf),
-        "targets_by_id": targets_by_id,
-        "doorbells_by_id": doorbells_by_id,
-        "cameras_by_id": cameras_by_id,
-        # Populated by switch platform; keyed by (event_type, source_id, target_id)
-        "entities": {},
-    }
+class DialMatrixRuntime:
+    """Holds the validated config, the switch entities and the MQTT wiring."""
 
-    hass.async_create_task(
-        discovery.async_load_platform(hass, Platform.SWITCH, DOMAIN, {}, config)
-    )
+    def __init__(self, hass: HomeAssistant, conf: dict[str, Any]) -> None:
+        self.hass = hass
+        self.conf = conf
+        self.doorbells: list[dict[str, Any]] = conf[CONF_DOORBELLS]
+        self.cameras: list[dict[str, Any]] = conf[CONF_CAMERAS]
+        self.targets: list[dict[str, Any]] = conf[CONF_TARGETS]
+        self.frigate: dict[str, Any] = conf[CONF_FRIGATE]
+        self.sources = build_sources(conf)
 
-    # -------------------------------------------------------------------------
-    # Fan-out
-    # -------------------------------------------------------------------------
+        self.targets_by_id = {t[CONF_ID]: t for t in self.targets}
+        self.doorbells_by_id = {d[CONF_ID]: d for d in self.doorbells}
+        self.cameras_by_id = {c[CONF_ID]: c for c in self.cameras}
+        self.cameras_by_frigate_name = {
+            c.get(CONF_FRIGATE_CAMERA) or c[CONF_ID]: c for c in self.cameras
+        }
+
+        # Populated by the switch platform; keyed by (event_type, source_id, target_id)
+        self.entities: dict[tuple[str, str, str], Any] = {}
+
+        self._seen_events: OrderedDict[str, None] = OrderedDict()
+        self._unsubscribe: list[Callable[[], None]] = []
+
+    # -- fan-out ---------------------------------------------------------------
 
     async def _notify_target(
+        self,
         target: dict[str, Any],
         title_key: str,
         message_key: str,
@@ -315,7 +313,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             if data:
                 payload["data"] = data
 
-            await hass.services.async_call(
+            await self.hass.services.async_call(
                 svc_domain, svc_name, payload, blocking=False
             )
             _LOGGER.debug(
@@ -328,7 +326,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         tts_entity = target.get(CONF_TTS_ENTITY)
         tts_media_player = target.get(CONF_TTS_MEDIA_PLAYER)
         if tts_entity and tts_media_player:
-            await hass.services.async_call(
+            await self.hass.services.async_call(
                 "tts",
                 "speak",
                 {
@@ -341,6 +339,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             _LOGGER.debug("TTS triggered for '%s' via '%s'", target[CONF_ID], tts_entity)
 
     async def _dispatch(
+        self,
         event_type: str,
         source_id: str,
         ctx: dict[str, Any],
@@ -350,40 +349,39 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         notify_data: dict[str, Any] | None = None,
     ) -> list[str]:
         """Notify all enabled targets for (event_type, source_id); return their ids."""
-        data = hass.data[DOMAIN]
         enabled_targets = [
             target_id
-            for (ev, src, target_id), entity in data["entities"].items()
+            for (ev, src, target_id), entity in self.entities.items()
             if ev == event_type and src == source_id and entity.is_on
         ]
 
         for target_id in enabled_targets:
-            target = targets_by_id.get(target_id)
+            target = self.targets_by_id.get(target_id)
             if target is None:
                 continue
-            await _notify_target(
+            await self._notify_target(
                 target, title_key, message_key, tts_key, ctx, notify_data or {}
             )
 
         return enabled_targets
 
-    def _frigate_notify_data(event_id: str | None, ctx: dict[str, Any]) -> dict[str, Any]:
+    def _frigate_notify_data(
+        self, event_id: str | None, ctx: dict[str, Any]
+    ) -> dict[str, Any]:
         """Push `data:` derived from a Frigate event id: snapshot image + tag."""
         if not event_id:
             return {}
         # Collapse repeated pushes for the same Frigate event on the phone
         data: dict[str, Any] = {"tag": f"{DOMAIN}_{event_id}"}
-        image_url = frigate_conf.get(CONF_IMAGE_URL, "")
+        image_url = self.frigate.get(CONF_IMAGE_URL, "")
         if image_url:
             data["image"] = _render(image_url, ctx)
         return data
 
-    # -------------------------------------------------------------------------
-    # Doorbell ring
-    # -------------------------------------------------------------------------
+    # -- doorbell ring ---------------------------------------------------------
 
-    async def async_ring(doorbell_id: str, event_id: str | None = None) -> None:
-        doorbell = doorbells_by_id.get(doorbell_id)
+    async def async_ring(self, doorbell_id: str, event_id: str | None = None) -> None:
+        doorbell = self.doorbells_by_id.get(doorbell_id)
         if doorbell is None:
             _LOGGER.error("dialmatrix.ring: unknown doorbell_id '%s'", doorbell_id)
             return
@@ -397,18 +395,18 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "doorbell_name": doorbell_name,
             "event_id": event_id or "",
         }
-        enabled_targets = await _dispatch(
+        enabled_targets = await self._dispatch(
             EVENT_TYPE_DOORBELL,
             doorbell_id,
             ctx,
             CONF_NOTIFY_TITLE,
             CONF_NOTIFY_MESSAGE,
             CONF_TTS_MESSAGE,
-            _frigate_notify_data(event_id, ctx),
+            self._frigate_notify_data(event_id, ctx),
         )
 
         # Always fire the event so automations can still react
-        hass.bus.async_fire(
+        self.hass.bus.async_fire(
             f"{DOMAIN}_ring",
             {
                 "doorbell_id": doorbell_id,
@@ -423,15 +421,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             enabled_targets,
         )
 
-    async def handle_ring(call: ServiceCall) -> None:
-        """Handle dialmatrix.ring — notify enabled targets and fire event."""
-        await async_ring(call.data["doorbell_id"], call.data.get("event_id"))
-
-    # -------------------------------------------------------------------------
-    # Frigate detection (person / car / ...)
-    # -------------------------------------------------------------------------
+    # -- Frigate detection (person / car / ...) --------------------------------
 
     async def async_detect(
+        self,
         camera: dict[str, Any],
         label: str,
         event_id: str | None = None,
@@ -465,17 +458,17 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             "zones": ", ".join(zones),
         }
 
-        enabled_targets = await _dispatch(
+        enabled_targets = await self._dispatch(
             label,
             camera_id,
             ctx,
             CONF_DETECT_TITLE,
             CONF_DETECT_MESSAGE,
             CONF_DETECT_TTS_MESSAGE,
-            _frigate_notify_data(event_id, ctx),
+            self._frigate_notify_data(event_id, ctx),
         )
 
-        hass.bus.async_fire(
+        self.hass.bus.async_fire(
             f"{DOMAIN}_detect",
             {
                 "camera_id": camera_id,
@@ -494,52 +487,26 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             enabled_targets,
         )
 
-    async def handle_detect(call: ServiceCall) -> None:
-        """Handle dialmatrix.detect — notify enabled targets and fire event."""
-        camera = cameras_by_id.get(call.data["camera_id"])
-        if camera is None:
-            _LOGGER.error(
-                "dialmatrix.detect: unknown camera_id '%s'", call.data["camera_id"]
-            )
-            return
-        await async_detect(
-            camera,
-            call.data["label"],
-            event_id=call.data.get("event_id"),
-            sub_label=call.data.get("sub_label"),
-            zones=call.data.get("zones"),
-        )
+    # -- MQTT ------------------------------------------------------------------
 
-    hass.services.async_register(DOMAIN, "ring", handle_ring, schema=_RING_SCHEMA)
-    hass.services.async_register(
-        DOMAIN, "detect", handle_detect, schema=_DETECT_SCHEMA
-    )
-
-    # -------------------------------------------------------------------------
-    # MQTT: doorbell topics and Frigate's event stream, so no automations are
-    # needed for either.
-    # -------------------------------------------------------------------------
-
-    def _make_doorbell_handler(doorbell: dict[str, Any]):
+    def _make_doorbell_handler(self, doorbell: dict[str, Any]) -> Callable[[Any], None]:
         @callback
         def _on_doorbell_message(msg: Any) -> None:
             event_id = _event_id_from_payload(msg.payload)
             _LOGGER.debug(
                 "MQTT ring for doorbell '%s' (event_id=%s)", doorbell[CONF_ID], event_id
             )
-            hass.async_create_task(async_ring(doorbell[CONF_ID], event_id))
+            self.hass.async_create_task(self.async_ring(doorbell[CONF_ID], event_id))
 
         return _on_doorbell_message
 
-    seen_events: OrderedDict[str, None] = OrderedDict()
-
-    def _remember(event_id: str) -> None:
-        seen_events[event_id] = None
-        while len(seen_events) > _SEEN_EVENTS_MAX:
-            seen_events.popitem(last=False)
+    def _remember(self, event_id: str) -> None:
+        self._seen_events[event_id] = None
+        while len(self._seen_events) > SEEN_EVENTS_MAX:
+            self._seen_events.popitem(last=False)
 
     @callback
-    def _on_frigate_message(msg: Any) -> None:
+    def _on_frigate_message(self, msg: Any) -> None:
         try:
             payload = json.loads(msg.payload)
         except (ValueError, TypeError):
@@ -552,10 +519,10 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
         event_id = after.get("id")
         if not event_id or payload.get("type") == "end":
             return
-        if event_id in seen_events or after.get("false_positive"):
+        if event_id in self._seen_events or after.get("false_positive"):
             return
 
-        camera = cameras_by_frigate_name.get(after.get("camera"))
+        camera = self.cameras_by_frigate_name.get(after.get("camera"))
         if camera is None:
             return
         label = after.get("label")
@@ -572,9 +539,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             # Not in a zone we care about (yet) — a later "update" may qualify
             return
 
-        _remember(event_id)
-        hass.async_create_task(
-            async_detect(
+        self._remember(event_id)
+        self.hass.async_create_task(
+            self.async_detect(
                 camera,
                 label,
                 event_id=event_id,
@@ -583,37 +550,150 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
             )
         )
 
-    subscriptions: list[tuple[str, Any]] = []
-    for doorbell in conf[CONF_DOORBELLS]:
-        if doorbell.get(CONF_MQTT_TOPIC):
-            subscriptions.append(
-                (doorbell[CONF_MQTT_TOPIC], _make_doorbell_handler(doorbell))
-            )
-    if conf[CONF_CAMERAS] and frigate_conf[CONF_MQTT]:
-        subscriptions.append((frigate_conf[CONF_MQTT_TOPIC], _on_frigate_message))
+    def _mqtt_subscriptions(self) -> list[tuple[str, Callable[[Any], None]]]:
+        subs: list[tuple[str, Callable[[Any], None]]] = []
+        for doorbell in self.doorbells:
+            if doorbell.get(CONF_MQTT_TOPIC):
+                subs.append(
+                    (doorbell[CONF_MQTT_TOPIC], self._make_doorbell_handler(doorbell))
+                )
+        if self.cameras and self.frigate[CONF_MQTT]:
+            subs.append((self.frigate[CONF_MQTT_TOPIC], self._on_frigate_message))
+        return subs
 
-    async def _async_subscribe_mqtt() -> None:
+    async def async_start(self) -> None:
+        """Subscribe to doorbell topics and Frigate's event stream."""
+        subscriptions = self._mqtt_subscriptions()
+        if not subscriptions:
+            return
+
         from homeassistant.components import mqtt  # pylint: disable=import-outside-toplevel
 
         topics = [topic for topic, _ in subscriptions]
         try:
-            ready = await mqtt.async_wait_for_mqtt_client(hass)
+            ready = await mqtt.async_wait_for_mqtt_client(self.hass)
         except Exception:  # pylint: disable=broad-except
             ready = False
         if not ready:
             _LOGGER.warning(
                 "MQTT is not available; topics %s will not be handled. Use the "
                 "dialmatrix.ring / dialmatrix.detect services from automations, "
-                "or remove the mqtt options to silence this.",
+                "or clear the MQTT options to silence this.",
                 topics,
             )
             return
 
         for topic, handler in subscriptions:
-            await mqtt.async_subscribe(hass, topic, handler)
+            self._unsubscribe.append(
+                await mqtt.async_subscribe(self.hass, topic, handler)
+            )
         _LOGGER.info("Subscribed to MQTT topics %s", topics)
 
-    if subscriptions:
-        hass.async_create_task(_async_subscribe_mqtt())
+    async def async_stop(self) -> None:
+        for unsub in self._unsubscribe:
+            try:
+                unsub()
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.debug("MQTT unsubscribe failed", exc_info=True)
+        self._unsubscribe.clear()
 
+
+# -----------------------------------------------------------------------------
+# Setup
+# -----------------------------------------------------------------------------
+
+
+def _runtime(hass: HomeAssistant) -> DialMatrixRuntime | None:
+    return hass.data.get(DOMAIN, {}).get("runtime")
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    """Import a legacy `dialmatrix:` YAML block into a config entry."""
+    hass.data.setdefault(DOMAIN, {})
+    conf = config.get(DOMAIN)
+    if conf is None:
+        return True
+
+    hass.async_create_task(
+        hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_IMPORT}, data=conf
+        )
+    )
+    ir.async_create_issue(
+        hass,
+        DOMAIN,
+        "deprecated_yaml",
+        is_fixable=False,
+        severity=ir.IssueSeverity.WARNING,
+        translation_key="deprecated_yaml",
+    )
     return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Set up Dial Matrix from a config entry."""
+    hass.data.setdefault(DOMAIN, {})
+    conf = OPTIONS_SCHEMA(dict(entry.options))
+    runtime = DialMatrixRuntime(hass, conf)
+    hass.data[DOMAIN]["runtime"] = runtime
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _async_register_services(hass)
+    await runtime.async_start()
+
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    return True
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Unload a config entry."""
+    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if ok:
+        runtime = hass.data[DOMAIN].pop("runtime", None)
+        if runtime is not None:
+            await runtime.async_stop()
+        hass.services.async_remove(DOMAIN, "ring")
+        hass.services.async_remove(DOMAIN, "detect")
+    return ok
+
+
+async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Reload the entry when its options change."""
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+@callback
+def _async_register_services(hass: HomeAssistant) -> None:
+    if hass.services.has_service(DOMAIN, "ring"):
+        return
+
+    async def handle_ring(call: ServiceCall) -> None:
+        """Handle dialmatrix.ring — notify enabled targets and fire event."""
+        runtime = _runtime(hass)
+        if runtime is None:
+            _LOGGER.error("dialmatrix.ring: integration is not set up")
+            return
+        await runtime.async_ring(call.data["doorbell_id"], call.data.get("event_id"))
+
+    async def handle_detect(call: ServiceCall) -> None:
+        """Handle dialmatrix.detect — notify enabled targets and fire event."""
+        runtime = _runtime(hass)
+        if runtime is None:
+            _LOGGER.error("dialmatrix.detect: integration is not set up")
+            return
+        camera = runtime.cameras_by_id.get(call.data["camera_id"])
+        if camera is None:
+            _LOGGER.error(
+                "dialmatrix.detect: unknown camera_id '%s'", call.data["camera_id"]
+            )
+            return
+        await runtime.async_detect(
+            camera,
+            call.data["label"],
+            event_id=call.data.get("event_id"),
+            sub_label=call.data.get("sub_label"),
+            zones=call.data.get("zones"),
+        )
+
+    hass.services.async_register(DOMAIN, "ring", handle_ring, schema=RING_SCHEMA)
+    hass.services.async_register(DOMAIN, "detect", handle_detect, schema=DETECT_SCHEMA)

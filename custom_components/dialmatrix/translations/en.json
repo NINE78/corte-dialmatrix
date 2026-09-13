@@ -1,5 +1,170 @@
 {
   "title": "Dial Matrix",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Dial Matrix",
+        "description": "Creates the Dial Matrix routing matrix. Add your doorbells, cameras and notification targets afterwards via Configure."
+      }
+    },
+    "abort": {
+      "single_instance_allowed": "Dial Matrix is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Dial Matrix",
+        "description": "Choose what to edit. Changes are applied when you pick Save.",
+        "menu_options": {
+          "doorbells": "Doorbells",
+          "cameras": "Cameras (Frigate)",
+          "targets": "Notification targets",
+          "frigate": "Frigate settings",
+          "save": "Save and apply"
+        }
+      },
+      "doorbells": {
+        "title": "Doorbells",
+        "menu_options": {
+          "add_doorbell": "Add doorbell",
+          "edit_doorbell": "Edit doorbell",
+          "remove_doorbell": "Remove doorbells",
+          "init": "Back"
+        }
+      },
+      "edit_doorbell": {
+        "title": "Edit doorbell",
+        "data": {
+          "item": "Doorbell"
+        }
+      },
+      "remove_doorbell": {
+        "title": "Remove doorbells",
+        "data": {
+          "item": "Doorbells to remove"
+        }
+      },
+      "doorbell_form": {
+        "title": "Doorbell",
+        "data": {
+          "id": "ID",
+          "name": "Name",
+          "mqtt_topic": "MQTT topic"
+        },
+        "data_description": {
+          "id": "Short unique identifier, used in entity ids (e.g. front).",
+          "mqtt_topic": "Optional. A message on this topic rings the doorbell; the payload is used as Frigate event id to attach a snapshot."
+        }
+      },
+      "cameras": {
+        "title": "Cameras",
+        "menu_options": {
+          "add_camera": "Add camera",
+          "edit_camera": "Edit camera",
+          "remove_camera": "Remove cameras",
+          "init": "Back"
+        }
+      },
+      "edit_camera": {
+        "title": "Edit camera",
+        "data": {
+          "item": "Camera"
+        }
+      },
+      "remove_camera": {
+        "title": "Remove cameras",
+        "data": {
+          "item": "Cameras to remove"
+        }
+      },
+      "camera_form": {
+        "title": "Camera",
+        "data": {
+          "id": "ID",
+          "name": "Name",
+          "frigate_camera": "Frigate camera name",
+          "labels": "Labels"
+        },
+        "data_description": {
+          "id": "Short unique identifier, used in entity ids (e.g. driveway).",
+          "frigate_camera": "Optional. Camera name as Frigate reports it, if different from the ID.",
+          "labels": "Object labels that get their own row in the matrix."
+        }
+      },
+      "camera_zones": {
+        "title": "Zones for {camera}",
+        "description": "Optional. For each label, a comma-separated list of Frigate zones. When set, a detection is only routed once the object has entered one of them. Leave empty to route every detection."
+      },
+      "targets": {
+        "title": "Notification targets",
+        "menu_options": {
+          "add_target": "Add target",
+          "edit_target": "Edit target",
+          "remove_target": "Remove targets",
+          "init": "Back"
+        }
+      },
+      "edit_target": {
+        "title": "Edit target",
+        "data": {
+          "item": "Target"
+        }
+      },
+      "remove_target": {
+        "title": "Remove targets",
+        "data": {
+          "item": "Targets to remove"
+        }
+      },
+      "target_form": {
+        "title": "Notification target",
+        "data": {
+          "id": "ID",
+          "name": "Name",
+          "notify_service": "Notify service",
+          "notify_title": "Doorbell push title",
+          "notify_message": "Doorbell push message",
+          "detect_title": "Detection push title",
+          "detect_message": "Detection push message",
+          "notify_data": "Extra push data",
+          "tts_entity": "TTS entity",
+          "tts_media_player": "TTS media player",
+          "tts_message": "Doorbell TTS message",
+          "detect_tts_message": "Detection TTS message"
+        },
+        "data_description": {
+          "id": "Short unique identifier, used in entity ids (e.g. alice_phone).",
+          "notify_service": "e.g. notify.mobile_app_alice_iphone. Leave empty for TTS-only targets.",
+          "notify_title": "Placeholders: $doorbell_name, $doorbell_id.",
+          "detect_message": "Placeholders: $camera_name, $label, $label_title, $sub_label, $zones.",
+          "notify_data": "Merged into every push as data: (e.g. url, clickAction, ttl, priority, push.sound)."
+        }
+      },
+      "frigate": {
+        "title": "Frigate settings",
+        "data": {
+          "mqtt": "Listen to Frigate events over MQTT",
+          "mqtt_topic": "Frigate MQTT topic",
+          "image_url": "Push image URL"
+        },
+        "data_description": {
+          "image_url": "Attached to pushes when a Frigate event id is known. $event_id is substituted. Empty disables the image."
+        }
+      }
+    },
+    "error": {
+      "duplicate_id": "This ID is already in use.",
+      "no_labels": "Pick at least one label.",
+      "notify_data_not_mapping": "Extra push data must be a mapping (key: value)."
+    }
+  },
+  "issues": {
+    "deprecated_yaml": {
+      "title": "Dial Matrix YAML configuration was imported",
+      "description": "The `dialmatrix:` block in configuration.yaml has been imported into the Dial Matrix integration and is no longer read. Remove it from configuration.yaml and manage the matrix via Settings → Devices & services → Dial Matrix → Configure."
+    }
+  },
   "services": {
     "ring": {
       "name": "Ring",

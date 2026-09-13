@@ -8,15 +8,16 @@ import logging
 from typing import Any
 
 from homeassistant.components.switch import SwitchEntity
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-_LOGGER = logging.getLogger(__name__)
+from .const import DOMAIN, EVENT_TYPE_DOORBELL
 
-DOMAIN = "dialmatrix"
-EVENT_TYPE_DOORBELL = "doorbell"
+_LOGGER = logging.getLogger(__name__)
 
 _ICONS = {
     EVENT_TYPE_DOORBELL: "mdi:doorbell",
@@ -25,35 +26,38 @@ _ICONS = {
 }
 
 
-async def async_setup_platform(
+async def async_setup_entry(
     hass: HomeAssistant,
-    config: dict,
+    entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
-    discovery_info: dict | None = None,
 ) -> None:
-    """Set up Dial Matrix switch entities."""
-    if discovery_info is None:
-        return
-
-    data = hass.data[DOMAIN]
+    """Set up Dial Matrix switch entities from a config entry."""
+    runtime = hass.data[DOMAIN]["runtime"]
     entities: list[DialMatrixSwitch] = []
 
-    for source in data["sources"]:
-        for target_idx, target in enumerate(data["targets"]):
-            entity = DialMatrixSwitch(source, target, target_idx)
+    for source in runtime.sources:
+        for target_idx, target in enumerate(runtime.targets):
+            entity = DialMatrixSwitch(entry, source, target, target_idx)
             entities.append(entity)
-            data["entities"][(source["event_type"], source["id"], target["id"])] = entity
+            runtime.entities[(source["event_type"], source["id"], target["id"])] = entity
+
+    registry = er.async_get(hass)
+
+    # Drop registry entries for cells that no longer exist (removed doorbell,
+    # camera, label or target) so they don't linger as unavailable entities.
+    expected = {e.unique_id for e in entities}
+    for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
+        if reg_entry.unique_id not in expected:
+            registry.async_remove(reg_entry.entity_id)
+            _LOGGER.debug("Removed stale entity %s", reg_entry.entity_id)
 
     async_add_entities(entities, True)
 
     # Ensure entity IDs in the registry match the desired scheme. The registry
     # wins over self.entity_id, so we update it directly.
-    registry = er.async_get(hass)
     for entity in entities:
         desired_id = f"switch.{entity.slug}"
-        current_id = registry.async_get_entity_id(
-            "switch", DOMAIN, entity._attr_unique_id
-        )
+        current_id = registry.async_get_entity_id("switch", DOMAIN, entity.unique_id)
         if current_id and current_id != desired_id:
             registry.async_update_entity(current_id, new_entity_id=desired_id)
             _LOGGER.debug("Renamed entity %s → %s", current_id, desired_id)
@@ -62,8 +66,14 @@ async def async_setup_platform(
 class DialMatrixSwitch(RestoreEntity, SwitchEntity):
     """A single routing cell: one source (doorbell / detection) → one target."""
 
+    _attr_should_poll = False
+
     def __init__(
-        self, source: dict[str, Any], target: dict[str, str], target_idx: int
+        self,
+        entry: ConfigEntry,
+        source: dict[str, Any],
+        target: dict[str, str],
+        target_idx: int,
     ) -> None:
         self._event_type: str = source["event_type"]
         self._source_id: str = source["id"]
@@ -84,8 +94,13 @@ class DialMatrixSwitch(RestoreEntity, SwitchEntity):
             )
 
         self._attr_unique_id = self.slug
-        self._attr_should_poll = False
         self._attr_icon = _ICONS.get(self._event_type, "mdi:motion-sensor")
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Dial Matrix",
+            manufacturer="Dial Matrix",
+            entry_type=None,
+        )
 
     @property
     def name(self) -> str:

@@ -15,11 +15,24 @@ A Home Assistant custom integration that implements a visual **event routing mat
 
 ## Installation
 
-Install via [HACS](https://hacs.xyz) by adding this repository as a custom integration repository.
+1. Install via [HACS](https://hacs.xyz) by adding this repository as a custom integration repository, then restart Home Assistant.
+2. Go to **Settings → Devices & services → Add integration** and pick **Dial Matrix**.
+3. Open the integration's **Configure** dialog to add doorbells, cameras and notification targets. Pick **Save and apply** when done; the switch entities are created immediately.
 
 ## Configuration
 
-Add to `configuration.yaml`:
+Everything is managed from the **Configure** dialog (options flow):
+
+- **Doorbells** — id, name and an optional MQTT topic that rings it.
+- **Cameras (Frigate)** — id, name, optional Frigate camera name, the labels that get a row (person, car, …) and, per label, the zones an object must enter before anyone is notified.
+- **Notification targets** — a phone (notify service) and/or a speaker (TTS entity + media player), with the push and TTS texts for doorbell rings and detections.
+- **Frigate settings** — whether to listen on Frigate's MQTT topic, the topic name, and the image URL attached to pushes.
+
+The card then shows one row per doorbell and per camera × label, one column per target, and every cell defaults to **on**.
+
+### Migrating from configuration.yaml
+
+A legacy `dialmatrix:` block is imported into the integration automatically on the first start after upgrading, and a repair issue reminds you to delete it. The YAML is ignored afterwards. The equivalent YAML for reference:
 
 ```yaml
 dialmatrix:
@@ -62,7 +75,7 @@ dialmatrix:
     image_url: /api/frigate/notifications/$event_id/thumbnail.jpg
 ```
 
-At least one of `doorbells` or `cameras` is required.
+The option tables below use the YAML key names; the Configure dialog shows the same fields with friendly labels.
 
 ### Doorbell options
 
