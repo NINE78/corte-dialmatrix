@@ -1,4 +1,7 @@
-"""Switch platform for Dial Matrix — one entity per (doorbell × target) pair."""
+"""Switch platform for Dial Matrix — one entity per (source × target) pair.
+
+A *source* is either a doorbell or a Frigate camera × label (person, car, …).
+"""
 from __future__ import annotations
 
 import logging
@@ -13,6 +16,13 @@ from homeassistant.helpers.restore_state import RestoreEntity
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "dialmatrix"
+EVENT_TYPE_DOORBELL = "doorbell"
+
+_ICONS = {
+    EVENT_TYPE_DOORBELL: "mdi:doorbell",
+    "person": "mdi:walk",
+    "car": "mdi:car",
+}
 
 
 async def async_setup_platform(
@@ -28,19 +38,19 @@ async def async_setup_platform(
     data = hass.data[DOMAIN]
     entities: list[DialMatrixSwitch] = []
 
-    for doorbell in data["doorbells"]:
-        for target in data["targets"]:
-            entity = DialMatrixSwitch(doorbell, target)
+    for source in data["sources"]:
+        for target_idx, target in enumerate(data["targets"]):
+            entity = DialMatrixSwitch(source, target, target_idx)
             entities.append(entity)
-            data["entities"][(doorbell["id"], target["id"])] = entity
+            data["entities"][(source["event_type"], source["id"], target["id"])] = entity
 
     async_add_entities(entities, True)
 
-    # Ensure entity IDs in the registry match switch.dialmatrix_{doorbell}_{target}.
-    # The registry wins over self.entity_id, so we update it directly.
+    # Ensure entity IDs in the registry match the desired scheme. The registry
+    # wins over self.entity_id, so we update it directly.
     registry = er.async_get(hass)
     for entity in entities:
-        desired_id = f"switch.{DOMAIN}_{entity._doorbell_id}_{entity._target_id}"
+        desired_id = f"switch.{entity.slug}"
         current_id = registry.async_get_entity_id(
             "switch", DOMAIN, entity._attr_unique_id
         )
@@ -50,21 +60,39 @@ async def async_setup_platform(
 
 
 class DialMatrixSwitch(RestoreEntity, SwitchEntity):
-    """A single routing cell: one doorbell → one notification target."""
+    """A single routing cell: one source (doorbell / detection) → one target."""
 
-    def __init__(self, doorbell: dict[str, str], target: dict[str, str]) -> None:
-        self._doorbell_id: str = doorbell["id"]
-        self._doorbell_name: str = doorbell["name"]
+    def __init__(
+        self, source: dict[str, Any], target: dict[str, str], target_idx: int
+    ) -> None:
+        self._event_type: str = source["event_type"]
+        self._source_id: str = source["id"]
+        self._source_name: str = source["name"]
+        self._source_attrs: dict[str, Any] = source.get("attributes", {})
+        self._order: tuple[int, ...] = (*source.get("order", (0, 0)), target_idx)
         self._target_id: str = target["id"]
         self._target_name: str = target["name"]
         self._is_on: bool = True  # Default to enabled on first install
 
-        self._attr_unique_id = f"{DOMAIN}_{self._doorbell_id}_{self._target_id}"
+        # Doorbell rows keep the historical id scheme so existing entities and
+        # dashboards survive the upgrade: dialmatrix_{doorbell}_{target}.
+        if self._event_type == EVENT_TYPE_DOORBELL:
+            self.slug = f"{DOMAIN}_{self._source_id}_{self._target_id}"
+        else:
+            self.slug = (
+                f"{DOMAIN}_{self._source_id}_{self._event_type}_{self._target_id}"
+            )
+
+        self._attr_unique_id = self.slug
         self._attr_should_poll = False
+        self._attr_icon = _ICONS.get(self._event_type, "mdi:motion-sensor")
 
     @property
     def name(self) -> str:
-        return f"{self._doorbell_name} → {self._target_name}"
+        if self._event_type == EVENT_TYPE_DOORBELL:
+            return f"{self._source_name} → {self._target_name}"
+        label = self._event_type.replace("_", " ").capitalize()
+        return f"{self._source_name} {label} → {self._target_name}"
 
     @property
     def is_on(self) -> bool:
@@ -73,10 +101,13 @@ class DialMatrixSwitch(RestoreEntity, SwitchEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return {
-            "doorbell_id": self._doorbell_id,
-            "doorbell_name": self._doorbell_name,
+            "event_type": self._event_type,
+            "source_id": self._source_id,
+            "source_name": self._source_name,
+            **self._source_attrs,
             "target_id": self._target_id,
             "target_name": self._target_name,
+            "sort_order": list(self._order),
         }
 
     async def async_turn_on(self, **kwargs: Any) -> None:

@@ -1,7 +1,7 @@
 ring:
   name: Ring
   description: >
-    Triggers a doorbell ring. Collects all enabled targets for the specified
+    Triggers a doorbell ring. Notifies all enabled targets for the specified
     doorbell and fires a dialmatrix_ring event with the resulting list.
   fields:
     doorbell_id:
@@ -11,3 +11,51 @@ ring:
       example: "front"
       selector:
         text:
+    event_id:
+      name: Frigate event ID
+      description: Optional Frigate event id; used to attach a snapshot to push notifications.
+      example: "1700000000.123456-abcdef"
+      selector:
+        text:
+
+detect:
+  name: Detect
+  description: >
+    Reports a Frigate object detection (person, car, …) on a camera. Notifies
+    all enabled targets for that camera × label and fires a dialmatrix_detect
+    event. Only needed when frigate.mqtt is disabled or for custom pipelines.
+  fields:
+    camera_id:
+      name: Camera ID
+      description: The identifier of the camera (as configured under `cameras:`).
+      required: true
+      example: "driveway"
+      selector:
+        text:
+    label:
+      name: Label
+      description: The detected object label, e.g. person or car.
+      required: true
+      example: "person"
+      selector:
+        select:
+          custom_value: true
+          options:
+            - person
+            - car
+    event_id:
+      name: Frigate event ID
+      description: Optional Frigate event id; used to attach a snapshot to push notifications.
+      example: "1700000000.123456-abcdef"
+      selector:
+        text:
+    sub_label:
+      name: Sub label
+      description: Optional Frigate sub label (e.g. recognised face or licence plate).
+      selector:
+        text:
+    zones:
+      name: Zones
+      description: Optional list of Frigate zones the object is in.
+      selector:
+        object:

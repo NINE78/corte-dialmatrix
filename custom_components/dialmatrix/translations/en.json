@@ -8,6 +8,36 @@
         "doorbell_id": {
           "name": "Doorbell ID",
           "description": "The identifier of the doorbell that was triggered."
+        },
+        "event_id": {
+          "name": "Frigate event ID",
+          "description": "Optional Frigate event id, used to attach a snapshot to push notifications."
+        }
+      }
+    },
+    "detect": {
+      "name": "Detect",
+      "description": "Reports a Frigate object detection (person, car, …) on a camera and fires a dialmatrix_detect event with the list of enabled notification targets.",
+      "fields": {
+        "camera_id": {
+          "name": "Camera ID",
+          "description": "The identifier of the camera as configured under cameras."
+        },
+        "label": {
+          "name": "Label",
+          "description": "The detected object label, e.g. person or car."
+        },
+        "event_id": {
+          "name": "Frigate event ID",
+          "description": "Optional Frigate event id, used to attach a snapshot to push notifications."
+        },
+        "sub_label": {
+          "name": "Sub label",
+          "description": "Optional Frigate sub label (recognised face, licence plate)."
+        },
+        "zones": {
+          "name": "Zones",
+          "description": "Optional list of Frigate zones the object is in."
         }
       }
     }
