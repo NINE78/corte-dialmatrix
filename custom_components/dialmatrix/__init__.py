@@ -19,6 +19,7 @@ from typing import Any
 
 import voluptuous as vol
 
+from homeassistant.components import websocket_api
 from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, callback
@@ -53,12 +54,16 @@ from .const import (
     DEFAULT_DETECT_TTS_MESSAGE,
     DEFAULT_FRIGATE_IMAGE_URL,
     DEFAULT_FRIGATE_TOPIC,
+    DEFAULT_LABEL_ICON,
     DEFAULT_LABELS,
     DEFAULT_NOTIFY_MESSAGE,
     DEFAULT_NOTIFY_TITLE,
     DEFAULT_TTS_MESSAGE,
     DOMAIN,
+    DOORBELL_ICON,
     EVENT_TYPE_DOORBELL,
+    LABEL_ICONS,
+    LABEL_OPTIONS,
     SEEN_EVENTS_MAX,
 )
 
@@ -131,23 +136,36 @@ FRIGATE_SCHEMA = vol.Schema(
     }
 )
 
+def _unique_ids(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    for item in items:
+        if item[CONF_ID] in seen:
+            raise vol.Invalid(f"duplicate id '{item[CONF_ID]}'")
+        seen.add(item[CONF_ID])
+    return items
+
+
 OPTIONS_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_DOORBELLS, default=[]): vol.All(
-            cv.ensure_list, [DOORBELL_SCHEMA]
+            cv.ensure_list, [DOORBELL_SCHEMA], _unique_ids
         ),
         vol.Optional(CONF_CAMERAS, default=[]): vol.All(
-            cv.ensure_list, [CAMERA_SCHEMA]
+            cv.ensure_list, [CAMERA_SCHEMA], _unique_ids
         ),
         vol.Optional(CONF_TARGETS, default=[]): vol.All(
-            cv.ensure_list, [TARGET_SCHEMA]
+            cv.ensure_list, [TARGET_SCHEMA], _unique_ids
         ),
         vol.Optional(CONF_FRIGATE, default={}): FRIGATE_SCHEMA,
     },
     extra=vol.REMOVE_EXTRA,
 )
 
-CONFIG_SCHEMA = vol.Schema({DOMAIN: OPTIONS_SCHEMA}, extra=vol.ALLOW_EXTRA)
+# `dialmatrix:` with nothing under it (e.g. everything commented out after the
+# import) is accepted and ignored.
+CONFIG_SCHEMA = vol.Schema(
+    {DOMAIN: vol.Any(None, OPTIONS_SCHEMA)}, extra=vol.ALLOW_EXTRA
+)
 
 RING_SCHEMA = vol.Schema(
     {
@@ -394,6 +412,7 @@ class DialMatrixRuntime:
             "doorbell_id": doorbell_id,
             "doorbell_name": doorbell_name,
             "event_id": event_id or "",
+            "icon": DOORBELL_ICON,
         }
         enabled_targets = await self._dispatch(
             EVENT_TYPE_DOORBELL,
@@ -453,6 +472,7 @@ class DialMatrixRuntime:
             "camera_name": camera_name,
             "label": label,
             "label_title": label.replace("_", " ").capitalize(),
+            "icon": LABEL_ICONS.get(label, DEFAULT_LABEL_ICON),
             "sub_label": sub_label or "",
             "event_id": event_id or "",
             "zones": ", ".join(zones),
@@ -608,8 +628,10 @@ def _runtime(hass: HomeAssistant) -> DialMatrixRuntime | None:
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """Import a legacy `dialmatrix:` YAML block into a config entry."""
+    """Register the websocket API and import a legacy YAML block, if any."""
     hass.data.setdefault(DOMAIN, {})
+    _async_register_websocket(hass)
+
     conf = config.get(DOMAIN)
     if conf is None:
         return True
@@ -697,3 +719,71 @@ def _async_register_services(hass: HomeAssistant) -> None:
 
     hass.services.async_register(DOMAIN, "ring", handle_ring, schema=RING_SCHEMA)
     hass.services.async_register(DOMAIN, "detect", handle_detect, schema=DETECT_SCHEMA)
+
+
+# -----------------------------------------------------------------------------
+# Websocket API — used by the Dial Matrix card's inline editor
+# -----------------------------------------------------------------------------
+
+
+def _config_entry(hass: HomeAssistant) -> ConfigEntry | None:
+    entries = hass.config_entries.async_entries(DOMAIN)
+    return entries[0] if entries else None
+
+
+def _defaults() -> dict[str, Any]:
+    """Defaults the card uses when adding items."""
+    return {
+        "target": TARGET_SCHEMA({CONF_ID: "", CONF_NAME: ""}),
+        "camera": CAMERA_SCHEMA({CONF_ID: "", CONF_NAME: ""}),
+        "frigate": FRIGATE_SCHEMA({}),
+        "labels": LABEL_OPTIONS,
+    }
+
+
+@websocket_api.websocket_command({vol.Required("type"): f"{DOMAIN}/config"})
+@callback
+def ws_get_config(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Return the current configuration (with defaults applied)."""
+    entry = _config_entry(hass)
+    options = OPTIONS_SCHEMA(dict(entry.options) if entry else {})
+    connection.send_result(
+        msg["id"],
+        {"config": options, "configured": entry is not None, "defaults": _defaults()},
+    )
+
+
+@websocket_api.websocket_command(
+    {vol.Required("type"): f"{DOMAIN}/config/save", vol.Required("config"): dict}
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_save_config(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Validate and store a full configuration; the entry reloads itself."""
+    try:
+        conf = OPTIONS_SCHEMA(msg["config"])
+    except vol.Invalid as err:
+        connection.send_error(msg["id"], "invalid_config", str(err))
+        return
+
+    entry = _config_entry(hass)
+    if entry is None:
+        await hass.config_entries.flow.async_init(
+            DOMAIN, context={"source": SOURCE_IMPORT}, data=conf
+        )
+    else:
+        hass.config_entries.async_update_entry(entry, options=conf)
+    connection.send_result(msg["id"], {"config": conf})
+
+
+@callback
+def _async_register_websocket(hass: HomeAssistant) -> None:
+    if hass.data[DOMAIN].get("ws_registered"):
+        return
+    websocket_api.async_register_command(hass, ws_get_config)
+    websocket_api.async_register_command(hass, ws_save_config)
+    hass.data[DOMAIN]["ws_registered"] = True

@@ -4,7 +4,7 @@
   "after_dependencies": ["mqtt"],
   "codeowners": ["@NINE78"],
   "config_flow": true,
-  "dependencies": [],
+  "dependencies": ["websocket_api"],
   "documentation": "https://github.com/NINE78/corte-dialmatrix",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/NINE78/corte-dialmatrix/issues",

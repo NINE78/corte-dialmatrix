@@ -43,11 +43,26 @@ CONF_TTS_MEDIA_PLAYER = "tts_media_player"
 CONF_TTS_MESSAGE = "tts_message"
 CONF_DETECT_TTS_MESSAGE = "detect_tts_message"
 
-DEFAULT_NOTIFY_TITLE = "Doorbell"
+# Emoji used for the $icon placeholder in notification texts
+DOORBELL_ICON = "🔔"
+LABEL_ICONS = {
+    "person": "🚶",
+    "car": "🚗",
+    "dog": "🐕",
+    "cat": "🐈",
+    "bird": "🐦",
+    "bicycle": "🚲",
+    "motorcycle": "🏍️",
+    "bus": "🚌",
+    "truck": "🚚",
+}
+DEFAULT_LABEL_ICON = "👁️"
+
+DEFAULT_NOTIFY_TITLE = "$icon Doorbell"
 DEFAULT_NOTIFY_MESSAGE = "Someone is at the $doorbell_name door"
 DEFAULT_TTS_MESSAGE = "Someone is at the $doorbell_name door"
-DEFAULT_DETECT_TITLE = "$label_title detected"
-DEFAULT_DETECT_MESSAGE = "$label_title detected at $camera_name"
+DEFAULT_DETECT_TITLE = "$icon $label_title detected"
+DEFAULT_DETECT_MESSAGE = "A $label was detected at the $camera_name"
 DEFAULT_DETECT_TTS_MESSAGE = "A $label was detected at the $camera_name"
 DEFAULT_FRIGATE_TOPIC = "frigate/events"
 DEFAULT_FRIGATE_IMAGE_URL = "/api/frigate/notifications/$event_id/thumbnail.jpg"

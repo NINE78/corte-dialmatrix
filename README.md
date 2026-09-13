@@ -21,7 +21,9 @@ A Home Assistant custom integration that implements a visual **event routing mat
 
 ## Configuration
 
-Everything is managed from the **Configure** dialog (options flow):
+The easiest way is the **pencil button on the Dial Matrix card**: it opens an inline editor for doorbells, cameras, targets and Frigate settings and saves straight into the integration (websocket commands `dialmatrix/config` and `dialmatrix/config/save`, admin only).
+
+The same settings are also available from the integration's **Configure** dialog (options flow):
 
 - **Doorbells** — id, name and an optional MQTT topic that rings it.
 - **Cameras (Frigate)** — id, name, optional Frigate camera name, the labels that get a row (person, car, …) and, per label, the zones an object must enter before anyone is notified.
@@ -102,10 +104,10 @@ The option tables below use the YAML key names; the Configure dialog shows the s
 | `id`                 | ✅       | Unique identifier used internally                                                                        |
 | `name`               | ✅       | Display name shown in the Lovelace card                                                                  |
 | `notify_service`     |          | HA notify service, e.g. `notify.mobile_app_foo`                                                          |
-| `notify_title`       |          | Push title for doorbell rings. Default: `Doorbell`                                                       |
+| `notify_title`       |          | Push title for doorbell rings. Default: `$icon Doorbell`                                                 |
 | `notify_message`     |          | Push body for doorbell rings. Default: `Someone is at the $doorbell_name door`                           |
-| `detect_title`       |          | Push title for detections. Default: `$label_title detected`                                              |
-| `detect_message`     |          | Push body for detections. Default: `$label_title detected at $camera_name`                               |
+| `detect_title`       |          | Push title for detections. Default: `$icon $label_title detected`                                        |
+| `detect_message`     |          | Push body for detections. Default: `A $label was detected at the $camera_name`                           |
 | `notify_data`        |          | Extra `data:` merged into every push for this target (e.g. `push: { sound: ... }`, `channel`, `actions`) |
 | `tts_entity`         |          | TTS entity, e.g. `tts.google_en_com`                                                                     |
 | `tts_media_player`   |          | Target media player entity ID                                                                            |
@@ -126,6 +128,7 @@ Messages use `$name` / `${name}` placeholders:
 
 | Placeholder                                 | Available for | Description                                                 |
 | ------------------------------------------- | ------------- | ----------------------------------------------------------- |
+| `$icon`                                     | both          | 🔔 for doorbells; 🚶 / 🚗 / 🐕 … per detection label          |
 | `$doorbell_name`, `$doorbell_id`            | doorbell      | The doorbell that rang                                      |
 | `$camera_name`, `$camera_id`                | detection     | The camera that detected the object                         |
 | `$label`, `$label_title`                    | detection     | Object label, lower-case (`car`) and capitalised (`Car`)    |
