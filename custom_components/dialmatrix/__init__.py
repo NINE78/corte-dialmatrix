@@ -190,6 +190,24 @@ DETECT_SCHEMA = vol.Schema(
 # Helpers
 # -----------------------------------------------------------------------------
 
+# Texts that were the defaults before the $icon placeholder existed. Entries
+# created back then store them literally; upgrade them to the current defaults
+# so the icons appear without re-typing every title.
+_LEGACY_DEFAULTS = {
+    CONF_NOTIFY_TITLE: {"Doorbell": DEFAULT_NOTIFY_TITLE},
+    CONF_DETECT_TITLE: {"$label_title detected": DEFAULT_DETECT_TITLE},
+    CONF_DETECT_MESSAGE: {"$label_title detected at $camera_name": DEFAULT_DETECT_MESSAGE},
+}
+
+
+def _upgrade_legacy_defaults(conf: dict[str, Any]) -> dict[str, Any]:
+    for target in conf.get(CONF_TARGETS, []):
+        for key, mapping in _LEGACY_DEFAULTS.items():
+            if target.get(key) in mapping:
+                target[key] = mapping[target[key]]
+    return conf
+
+
 
 def _render(template_str: str, ctx: dict[str, Any]) -> str:
     """Substitute $placeholders (e.g. $doorbell_name, $camera_name, $label)."""
@@ -655,7 +673,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Dial Matrix from a config entry."""
     hass.data.setdefault(DOMAIN, {})
-    conf = OPTIONS_SCHEMA(dict(entry.options))
+    conf = _upgrade_legacy_defaults(OPTIONS_SCHEMA(dict(entry.options)))
     runtime = DialMatrixRuntime(hass, conf)
     hass.data[DOMAIN]["runtime"] = runtime
 
@@ -748,7 +766,7 @@ def ws_get_config(
 ) -> None:
     """Return the current configuration (with defaults applied)."""
     entry = _config_entry(hass)
-    options = OPTIONS_SCHEMA(dict(entry.options) if entry else {})
+    options = _upgrade_legacy_defaults(OPTIONS_SCHEMA(dict(entry.options) if entry else {}))
     connection.send_result(
         msg["id"],
         {"config": options, "configured": entry is not None, "defaults": _defaults()},
