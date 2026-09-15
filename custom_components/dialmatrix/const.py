@@ -42,6 +42,11 @@ CONF_TTS_ENTITY = "tts_entity"
 CONF_TTS_MEDIA_PLAYER = "tts_media_player"
 CONF_TTS_MESSAGE = "tts_message"
 CONF_DETECT_TTS_MESSAGE = "detect_tts_message"
+CONF_TTS_VOLUME = "tts_volume"
+CONF_TTS_ANNOUNCE = "tts_announce"
+
+# MediaPlayerEntityFeature.MEDIA_ANNOUNCE — players that can duck/resume
+MEDIA_PLAYER_FEATURE_ANNOUNCE = 1048576
 
 # Emoji used for the $icon placeholder in notification texts
 DOORBELL_ICON = "🔔"

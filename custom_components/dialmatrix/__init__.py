@@ -16,6 +16,7 @@ import json
 import logging
 from string import Template
 from typing import Any
+from urllib.parse import urlencode
 
 import voluptuous as vol
 
@@ -45,9 +46,11 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_TITLE,
     CONF_TARGETS,
+    CONF_TTS_ANNOUNCE,
     CONF_TTS_ENTITY,
     CONF_TTS_MEDIA_PLAYER,
     CONF_TTS_MESSAGE,
+    CONF_TTS_VOLUME,
     CONF_ZONES,
     DEFAULT_DETECT_MESSAGE,
     DEFAULT_DETECT_TITLE,
@@ -64,6 +67,7 @@ from .const import (
     EVENT_TYPE_DOORBELL,
     LABEL_ICONS,
     LABEL_OPTIONS,
+    MEDIA_PLAYER_FEATURE_ANNOUNCE,
     SEEN_EVENTS_MAX,
 )
 
@@ -118,11 +122,17 @@ TARGET_SCHEMA = vol.Schema(
         vol.Optional(CONF_NOTIFY_DATA, default={}): dict,
         # TTS
         vol.Optional(CONF_TTS_ENTITY): cv.string,
-        vol.Optional(CONF_TTS_MEDIA_PLAYER): cv.entity_id,
+        # One media player or a list; announcements go to all of them
+        vol.Optional(CONF_TTS_MEDIA_PLAYER): vol.All(cv.ensure_list, [cv.entity_id]),
         vol.Optional(CONF_TTS_MESSAGE, default=DEFAULT_TTS_MESSAGE): cv.string,
         vol.Optional(
             CONF_DETECT_TTS_MESSAGE, default=DEFAULT_DETECT_TTS_MESSAGE
         ): cv.string,
+        # Announcement mode: duck / pause the music, speak, resume at the old
+        # level (Sonos and other players with the "announce" feature).
+        vol.Optional(CONF_TTS_ANNOUNCE, default=True): cv.boolean,
+        # Volume (0-100) for the announcement; None = player's current volume
+        vol.Optional(CONF_TTS_VOLUME): vol.All(vol.Coerce(int), vol.Range(min=0, max=100)),
     }
 )
 
@@ -360,19 +370,65 @@ class DialMatrixRuntime:
             )
 
         tts_entity = target.get(CONF_TTS_ENTITY)
-        tts_media_player = target.get(CONF_TTS_MEDIA_PLAYER)
-        if tts_entity and tts_media_player:
+        players = target.get(CONF_TTS_MEDIA_PLAYER) or []
+        if tts_entity and players:
+            await self._speak(target, tts_entity, players, _render(target[tts_key], ctx))
+
+    def _supports_announce(self, entity_id: str) -> bool:
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return False
+        features = state.attributes.get("supported_features") or 0
+        return bool(int(features) & MEDIA_PLAYER_FEATURE_ANNOUNCE)
+
+    async def _speak(
+        self, target: dict[str, Any], tts_entity: str, players: list[str], message: str
+    ) -> None:
+        """Speak `message` on the target's players.
+
+        Players that support announcements (Sonos, …) get play_media with
+        announce=True: the player ducks or pauses the current stream, plays the
+        clip at `tts_volume`, and resumes at the previous level by itself. The
+        rest get a plain tts.speak.
+        """
+        announce_players: list[str] = []
+        plain_players: list[str] = []
+        for player in players:
+            if target.get(CONF_TTS_ANNOUNCE, True) and self._supports_announce(player):
+                announce_players.append(player)
+            else:
+                plain_players.append(player)
+
+        if announce_players:
+            data: dict[str, Any] = {
+                "entity_id": announce_players,
+                "media_content_id": f"media-source://tts/{tts_entity}?"
+                + urlencode({"message": message}),
+                "media_content_type": "music",
+                "announce": True,
+            }
+            volume = target.get(CONF_TTS_VOLUME)
+            if volume is not None:
+                data["extra"] = {"volume": volume}
+            await self.hass.services.async_call(
+                "media_player", "play_media", data, blocking=False
+            )
+            _LOGGER.debug(
+                "Announcement for '%s' on %s via '%s'", target[CONF_ID], announce_players, tts_entity
+            )
+
+        if plain_players:
             await self.hass.services.async_call(
                 "tts",
                 "speak",
                 {
                     "entity_id": tts_entity,
-                    "media_player_entity_id": tts_media_player,
-                    "message": _render(target[tts_key], ctx),
+                    "media_player_entity_id": plain_players,
+                    "message": message,
                 },
                 blocking=False,
             )
-            _LOGGER.debug("TTS triggered for '%s' via '%s'", target[CONF_ID], tts_entity)
+            _LOGGER.debug("TTS for '%s' on %s via '%s'", target[CONF_ID], plain_players, tts_entity)
 
     async def _dispatch(
         self,

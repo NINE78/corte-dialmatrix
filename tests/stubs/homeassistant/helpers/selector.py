@@ -16,3 +16,6 @@ class ObjectSelector(_Sel): pass
 class EntitySelector(_Sel): pass
 class EntitySelectorConfig(dict):
     def __init__(self, **k): super().__init__(**k)
+class NumberSelector(_Sel): pass
+class NumberSelectorConfig(dict):
+    def __init__(self, **k): super().__init__(**k)

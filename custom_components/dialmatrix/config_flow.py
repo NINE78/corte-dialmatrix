@@ -33,9 +33,11 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_TITLE,
     CONF_TARGETS,
+    CONF_TTS_ANNOUNCE,
     CONF_TTS_ENTITY,
     CONF_TTS_MEDIA_PLAYER,
     CONF_TTS_MESSAGE,
+    CONF_TTS_VOLUME,
     CONF_ZONES,
     DEFAULT_DETECT_MESSAGE,
     DEFAULT_DETECT_TITLE,
@@ -122,12 +124,16 @@ def _target_schema() -> vol.Schema:
                 selector.EntitySelectorConfig(domain="tts")
             ),
             vol.Optional(CONF_TTS_MEDIA_PLAYER): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="media_player")
+                selector.EntitySelectorConfig(domain="media_player", multiple=True)
             ),
             vol.Required(CONF_TTS_MESSAGE, default=DEFAULT_TTS_MESSAGE): _text(),
             vol.Required(
                 CONF_DETECT_TTS_MESSAGE, default=DEFAULT_DETECT_TTS_MESSAGE
             ): _text(),
+            vol.Required(CONF_TTS_ANNOUNCE, default=True): selector.BooleanSelector(),
+            vol.Optional(CONF_TTS_VOLUME): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=100, step=1, mode="slider")
+            ),
         }
     )
 

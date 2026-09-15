@@ -129,16 +129,20 @@
           "detect_message": "Detection push message",
           "notify_data": "Extra push data",
           "tts_entity": "TTS entity",
-          "tts_media_player": "TTS media player",
+          "tts_media_player": "TTS media players",
           "tts_message": "Doorbell TTS message",
-          "detect_tts_message": "Detection TTS message"
+          "detect_tts_message": "Detection TTS message",
+          "tts_announce": "Announce (duck music, speak, resume)",
+          "tts_volume": "Announcement volume"
         },
         "data_description": {
           "id": "Short unique identifier, used in entity ids (e.g. alice_phone).",
           "notify_service": "e.g. notify.mobile_app_alice_iphone. Leave empty for TTS-only targets.",
           "notify_title": "Placeholders: $doorbell_name, $doorbell_id.",
           "detect_message": "Placeholders: $camera_name, $label, $label_title, $sub_label, $zones.",
-          "notify_data": "Merged into every push as data: (e.g. url, clickAction, ttl, priority, push.sound)."
+          "notify_data": "Merged into every push as data: (e.g. url, clickAction, ttl, priority, push.sound).",
+          "tts_announce": "On players that support announcements (Sonos, …) the current music is ducked or paused, the message is played, and the music resumes at its previous level.",
+          "tts_volume": "Volume 0-100 for the announcement. Leave empty to use the player's current volume."
         }
       },
       "frigate": {

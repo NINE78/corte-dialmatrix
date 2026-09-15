@@ -49,10 +49,19 @@ class ConfigEntries:
     async def async_unload_platforms(self, entry, platforms): return True
     async def async_reload(self, entry_id): self.reloaded.append(entry_id)
 
+class States(dict):
+    def get(self, entity_id, default=None):
+        v = super().get(entity_id)
+        return v if v is not None else default
+
 class Hass:
     def __init__(self):
         self.data = {}; self.bus = Bus(); self.services = Services(); self.tasks = []
         self.config_entries = ConfigEntries(self)
+        self.states = States({
+            "media_player.living": types.SimpleNamespace(attributes={"supported_features": 1048576 | 4}),  # announce-capable (Sonos)
+            "media_player.old": types.SimpleNamespace(attributes={"supported_features": 4}),
+        })
     def async_create_task(self, coro): self.tasks.append(asyncio.ensure_future(coro))
 
 YAML = {
@@ -81,6 +90,10 @@ async def main():
     assert conf["cameras"][0]["zones"] == {"*": ["yard"]} and conf["cameras"][1]["zones"] == {}
     assert conf["cameras"][2]["zones"] == {"person": ["outside_driveway_person"], "car": ["outside_driveway_car"]}
     assert conf["frigate"]["mqtt"] is True and conf["frigate"]["mqtt_topic"] == "frigate/events"
+    assert conf["targets"][1]["tts_media_player"] == ["media_player.living"] and conf["targets"][1]["tts_announce"] is True and "tts_volume" not in conf["targets"][1]
+    assert OPTIONS_SCHEMA({"targets": [{"id": "s", "name": "S", "tts_media_player": ["media_player.a", "media_player.b"], "tts_volume": "35"}]})["targets"][0]["tts_volume"] == 35
+    try: OPTIONS_SCHEMA({"targets": [{"id": "s", "name": "S", "tts_volume": 150}]}); assert False
+    except vol.Invalid: pass
     assert OPTIONS_SCHEMA({}) == {"doorbells": [], "cameras": [], "targets": [], "frigate": conf["frigate"]}, "empty options ok"
 
     hass0 = Hass()
@@ -130,7 +143,8 @@ async def main():
     await hass.services.call("ring", {"doorbell_id": "front"})
     calls = hass.services.calls; hass.services.calls = []
     assert calls[0] == ("notify.mobile_app_alice", {"title": "🔔 Doorbell", "message": "Someone is at the Front Door door", "data": {"push": {"sound": "x"}}}), calls[0]
-    assert calls[1][0] == "tts.speak" and calls[1][1]["message"] == "Someone is at the Front Door door"
+    assert calls[1] == ("media_player.play_media", {"entity_id": ["media_player.living"], "media_content_id": "media-source://tts/tts.google?message=Someone+is+at+the+Front+Door+door",
+        "media_content_type": "music", "announce": True}), calls[1]
     assert hass.bus.events[-1] == ("dialmatrix_ring", {"doorbell_id": "front", "doorbell_name": "Front Door", "event_id": None, "enabled_targets": ["alice", "speaker"]})
     await hass.services.call("ring", {"doorbell_id": "front", "event_id": "ring1"})
     assert hass.services.calls[0][1]["data"] == {"tag": "dialmatrix_ring1", "image": "/api/frigate/notifications/ring1/thumbnail.jpg", "push": {"sound": "x"}}
@@ -158,7 +172,7 @@ async def main():
     await flush(); assert hass.services.calls == [], "not in zone yet"
     msg("update", id="ev1", camera="driveway", label="car", entered_zones=["yard"], current_zones=["yard"], sub_label=["ABC-123", 0.9])
     await flush()
-    assert len(hass.services.calls) == 2 and hass.services.calls[1][1]["message"] == "A car was detected at the Driveway"
+    assert len(hass.services.calls) == 2 and hass.services.calls[1][1]["media_content_id"].endswith("message=A+car+was+detected+at+the+Driveway")
     assert hass.services.calls[0][1]["title"] == "🚗 Car detected"
     assert hass.bus.events[-1][1]["sub_label"] == "ABC-123"; hass.services.calls = []
     msg("update", id="ev1", camera="driveway", label="car", entered_zones=["yard"], current_zones=["yard"])
@@ -211,6 +225,23 @@ async def main():
     assert list(mqtt.subscriptions) == ["home/doorbell/front/frigate_event"]
     await hass3.services.call("detect", {"camera_id": "driveway", "label": "car", "event_id": "z"})
     assert hass3.services.calls[0][1]["data"] == {"tag": "dialmatrix_z", "push": {"sound": "x"}}
+    mqtt.subscriptions.clear()
+
+    # TTS modes: volume + mixed players (announce-capable vs plain), announce off, unknown player
+    tts_conf = {**conf, "targets": [
+        {"id": "s1", "name": "S1", "tts_entity": "tts.google", "tts_media_player": ["media_player.living", "media_player.old"], "tts_volume": 40},
+        {"id": "s2", "name": "S2", "tts_entity": "tts.google", "tts_media_player": "media_player.living", "tts_announce": False},
+        {"id": "s3", "name": "S3", "tts_entity": "tts.google", "tts_media_player": "media_player.missing"},
+    ]}
+    hass7, _ = await setup(tts_conf)
+    await hass7.services.call("ring", {"doorbell_id": "front"})
+    c = hass7.services.calls
+    assert c[0] == ("media_player.play_media", {"entity_id": ["media_player.living"], "media_content_id": "media-source://tts/tts.google?message=Someone+is+at+the+Front+Door+door",
+        "media_content_type": "music", "announce": True, "extra": {"volume": 40}}), c[0]
+    assert c[1] == ("tts.speak", {"entity_id": "tts.google", "media_player_entity_id": ["media_player.old"], "message": "Someone is at the Front Door door"}), c[1]
+    assert c[2] == ("tts.speak", {"entity_id": "tts.google", "media_player_entity_id": ["media_player.living"], "message": "Someone is at the Front Door door"}), "announce disabled → plain"
+    assert c[3][0] == "tts.speak" and c[3][1]["media_player_entity_id"] == ["media_player.missing"], "unknown player → plain"
+    assert len(c) == 4
     mqtt.subscriptions.clear()
 
     # Entry stored before $icon existed: old literal defaults upgraded, custom texts kept

@@ -27,7 +27,7 @@ The same settings are also available from the integration's **Configure** dialog
 
 - **Doorbells** — id, name and an optional MQTT topic that rings it.
 - **Cameras (Frigate)** — id, name, optional Frigate camera name, the labels that get a row (person, car, …) and, per label, the zones an object must enter before anyone is notified.
-- **Notification targets** — a phone (notify service) and/or a speaker (TTS entity + media player), with the push and TTS texts for doorbell rings and detections.
+- **Notification targets** — a phone (notify service) and/or speakers (TTS entity + media players), with the push and TTS texts for doorbell rings and detections. On Sonos and other players with announcement support the music is ducked, the message is spoken at a set volume, and the music resumes at its previous level.
 - **Frigate settings** — whether to listen on Frigate's MQTT topic, the topic name, and the image URL attached to pushes.
 
 The card then shows one row per doorbell and per camera × label, one column per target, and every cell defaults to **on**.
@@ -71,6 +71,12 @@ dialmatrix:
       name: 'Living Room Speaker'
       tts_entity: tts.google_en_com
       tts_media_player: media_player.living_room_speaker
+    - id: sonos
+      name: 'Sonos'
+      tts_entity: tts.google_en_com
+      tts_media_player: [media_player.kitchen, media_player.office] # one or many
+      tts_volume: 40 # announcement volume; music ducks and resumes (Sonos)
+      tts_announce: true # default
   frigate: # optional
     mqtt: true # subscribe to Frigate events over MQTT (default: true)
     mqtt_topic: frigate/events
@@ -110,7 +116,9 @@ The option tables below use the YAML key names; the Configure dialog shows the s
 | `detect_message`     |          | Push body for detections. Default: `A $label was detected at the $camera_name`                           |
 | `notify_data`        |          | Extra `data:` merged into every push for this target (e.g. `push: { sound: ... }`, `channel`, `actions`) |
 | `tts_entity`         |          | TTS entity, e.g. `tts.google_en_com`                                                                     |
-| `tts_media_player`   |          | Target media player entity ID                                                                            |
+| `tts_media_player`   |          | One media player entity ID or a list; the message is spoken on all of them                               |
+| `tts_announce`       |          | Default `true`. On players with announcement support (Sonos, …) the music is ducked or paused, the message plays, and the music resumes at its previous level. Other players get a plain `tts.speak` |
+| `tts_volume`         |          | Announcement volume 0-100. Default: the player's current volume. Only applies with `tts_announce`         |
 | `tts_message`        |          | TTS text for doorbell rings. Default: `Someone is at the $doorbell_name door`                            |
 | `detect_tts_message` |          | TTS text for detections. Default: `A $label was detected at the $camera_name`                            |
 
