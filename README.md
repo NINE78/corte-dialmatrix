@@ -21,7 +21,7 @@ A Home Assistant custom integration that implements a visual **event routing mat
 
 ## Configuration
 
-The easiest way is the **Dial Matrix card's edit dialog** (dashboard edit mode → edit card): it contains a routing editor for doorbells, cameras, targets and Frigate settings and saves straight into the integration (websocket commands `dialmatrix/config` and `dialmatrix/config/save`, admin only).
+The easiest way is the **Dial Matrix card's edit dialog** (dashboard edit mode → edit card): it contains a routing editor for doorbells, cameras, targets and Frigate settings and saves straight into the integration (websocket commands `dialmatrix/config` and `dialmatrix/config/save`, admin only). Its *Test on speakers* button uses `dialmatrix/tts/test`, which speaks a message with the speaker settings you pass in, through the same code path as a real event.
 
 The same settings are also available from the integration's **Configure** dialog (options flow):
 

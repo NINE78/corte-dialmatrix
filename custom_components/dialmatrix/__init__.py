@@ -854,10 +854,66 @@ async def ws_save_config(
     connection.send_result(msg["id"], {"config": conf})
 
 
+_TEST_TTS_DEFAULT_MESSAGE = "This is a test announcement from Dial Matrix"
+
+# Sample values so placeholders in a message render sensibly during a test
+_TEST_CTX = {
+    "event_type": EVENT_TYPE_DOORBELL,
+    "source_id": "test",
+    "source_name": "Test",
+    "doorbell_id": "test",
+    "doorbell_name": "Front Door",
+    "camera_id": "test",
+    "camera_name": "Front Door",
+    "label": "person",
+    "label_title": "Person",
+    "icon": DOORBELL_ICON,
+    "sub_label": "",
+    "event_id": "",
+    "zones": "",
+}
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): f"{DOMAIN}/tts/test",
+        # Speaker settings as in a target (tts_entity, tts_media_player, …)
+        vol.Required("target"): dict,
+        vol.Optional("message", default=_TEST_TTS_DEFAULT_MESSAGE): cv.string,
+    }
+)
+@websocket_api.require_admin
+@websocket_api.async_response
+async def ws_test_tts(
+    hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict
+) -> None:
+    """Speak a test message with the given (possibly unsaved) speaker settings."""
+    runtime = _runtime(hass)
+    if runtime is None:
+        connection.send_error(msg["id"], "not_set_up", "Dial Matrix is not set up yet")
+        return
+    try:
+        target = TARGET_SCHEMA({CONF_ID: "test", CONF_NAME: "Test", **msg["target"]})
+    except vol.Invalid as err:
+        connection.send_error(msg["id"], "invalid_target", str(err))
+        return
+    tts_entity = target.get(CONF_TTS_ENTITY)
+    players = target.get(CONF_TTS_MEDIA_PLAYER) or []
+    if not tts_entity or not players:
+        connection.send_error(
+            msg["id"], "invalid_target", "Pick a text-to-speech engine and at least one speaker"
+        )
+        return
+    message = _render(msg["message"], _TEST_CTX)
+    await runtime._speak(target, tts_entity, players, message)
+    connection.send_result(msg["id"], {"players": players, "message": message})
+
+
 @callback
 def _async_register_websocket(hass: HomeAssistant) -> None:
     if hass.data[DOMAIN].get("ws_registered"):
         return
     websocket_api.async_register_command(hass, ws_get_config)
     websocket_api.async_register_command(hass, ws_save_config)
+    websocket_api.async_register_command(hass, ws_test_tts)
     hass.data[DOMAIN]["ws_registered"] = True

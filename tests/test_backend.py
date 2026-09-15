@@ -107,7 +107,9 @@ async def main():
         OPTIONS_SCHEMA({"targets": [{"id": "a", "name": "A"}, {"id": "a", "name": "B"}]}); assert False
     except vol.Invalid as err: assert "duplicate id" in str(err)
     # websocket API registered by async_setup
-    assert set(ws.commands) == {"dialmatrix/config", "dialmatrix/config/save"}
+    assert set(ws.commands) == {"dialmatrix/config", "dialmatrix/config/save", "dialmatrix/tts/test"}
+    conn = Conn(); await ws.commands["dialmatrix/tts/test"](hass0b, conn, {"id": 0, "type": "dialmatrix/tts/test", "target": {}, "message": "x"})
+    assert conn.errors[0][0] == "not_set_up"
     conn = Conn(); ws.commands["dialmatrix/config"](hass0b, conn, {"id": 1, "type": "dialmatrix/config"})
     assert conn.results[0]["configured"] is False and conn.results[0]["config"]["targets"] == []
     assert conn.results[0]["defaults"]["target"]["notify_title"] == "$icon Doorbell" and conn.results[0]["defaults"]["camera"]["labels"] == ["person", "car"]
@@ -242,6 +244,17 @@ async def main():
     assert c[2] == ("tts.speak", {"entity_id": "tts.google", "media_player_entity_id": ["media_player.living"], "message": "Someone is at the Front Door door"}), "announce disabled → plain"
     assert c[3][0] == "tts.speak" and c[3][1]["media_player_entity_id"] == ["media_player.missing"], "unknown player → plain"
     assert len(c) == 4
+    # TTS test over websocket: unsaved target settings, placeholders rendered, same speak path
+    hass7.services.calls = []
+    conn = Conn(); await ws.commands["dialmatrix/tts/test"](hass7, conn, {"id": 1, "type": "dialmatrix/tts/test",
+        "target": {"tts_entity": "tts.google", "tts_media_player": ["media_player.living"], "tts_volume": 25}, "message": "$icon Test at the $doorbell_name"})
+    assert conn.results[0] == {"players": ["media_player.living"], "message": "🔔 Test at the Front Door"}, conn.results
+    assert hass7.services.calls == [("media_player.play_media", {"entity_id": ["media_player.living"], "media_content_id": "media-source://tts/tts.google?message=%F0%9F%94%94+Test+at+the+Front+Door",
+        "media_content_type": "music", "announce": True, "extra": {"volume": 25}})], hass7.services.calls
+    conn = Conn(); await ws.commands["dialmatrix/tts/test"](hass7, conn, {"id": 2, "type": "dialmatrix/tts/test", "target": {"tts_entity": "tts.google"}, "message": "x"})
+    assert conn.errors[0][0] == "invalid_target"
+    conn = Conn(); await ws.commands["dialmatrix/tts/test"](hass7, conn, {"id": 3, "type": "dialmatrix/tts/test", "target": {"tts_entity": "tts.google", "tts_media_player": ["media_player.old"], "tts_volume": 500}, "message": "x"})
+    assert conn.errors[0][0] == "invalid_target"
     mqtt.subscriptions.clear()
 
     # Entry stored before $icon existed: old literal defaults upgraded, custom texts kept
